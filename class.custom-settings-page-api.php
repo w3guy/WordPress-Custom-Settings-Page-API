@@ -1,26 +1,56 @@
 <?php
+/**
+ * WordPress Custom Settings API Library.
+ *
+ * Copyright (C) 2016  Agbonghama Collins
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ * @package WordPress Custom Settings API
+ * @version 1.0
+ * @author Agbonghama Collins
+ * @link to be decided
+ * @license http://www.gnu.org/licenses GNU General Public License
+ */
 
 namespace W3Guy;
 
-/**
- * Class Custom_Settings_Api
- */
 class Custom_Settings_Page_Api {
 
-	private $db_options;
+	/** @var mixed|void database saved data. */
+	private $db_options = array();
 
-	private $option_name;
+	/** @var string option name for database saving. */
+	private $option_name = '';
 
-	private $tabs_config;
+	/** @var array config of settings page tabs */
+	private $tabs_config = array();
 
-	/** @var array array config of main settings page */
-	private $main_content_config;
+	/** @var array config of main settings page */
+	private $main_content_config = array();
 
-	private $sidebar_config;
+	/** @var array config of settings page sidebar */
+	private $sidebar_config = array();
 
-	public function __construct( $main_content_config = '', $option_name = '' ) {
+	/** @var string header title of the page */
+	private $page_header = '';
+
+	public function __construct( $main_content_config = array(), $option_name = '', $page_header = '' ) {
 		$this->db_options          = get_option( $option_name );
 		$this->main_content_config = $main_content_config;
+
+		add_action( 'admin_init', array( $this, 'persist_plugin_settings' ) );
 	}
 
 	public function option_name( $val ) {
@@ -39,7 +69,13 @@ class Custom_Settings_Page_Api {
 		$this->sidebar_config = $val;
 	}
 
+	public function page_header( $val ) {
+		$this->page_header = $val;
+	}
+
 	/**
+	 * Construct the settings page tab.
+	 *
 	 * array(
 	 *  array('url' => '', 'label' => ''),
 	 *  array('url' => '', 'label' => ''),
@@ -49,9 +85,9 @@ class Custom_Settings_Page_Api {
 	public function settings_page_tab() {
 		$args = $this->tabs_config;
 		echo '<h2 class="nav-tab-wrapper">';
-		if ( is_array( $args ) ) {
+		if ( ! empty( $args ) ) {
 			foreach ( $args as $arg ) {
-				$url    = esc_url( $arg['url'] );
+				$url    = esc_url_raw( $arg['url'] );
 				$label  = esc_attr( $arg['label'] );
 				$active = $this->current_page_url() == $url ? ' nav-tab-active' : null;
 				echo "<a href=\"$url\" class=\"nav-tab{$active}\">$label</a>";
@@ -63,6 +99,7 @@ class Custom_Settings_Page_Api {
 
 
 	/**
+	 * Construct the settings page sidebar.
 	 *
 	 * array(
 	 *      array(
@@ -71,18 +108,17 @@ class Custom_Settings_Page_Api {
 	 *`     );
 	 * );
 	 *
-	 * @param array $args array of sidebar parameters.
-	 *
-	 * @param string $alignment sidebar alignment. Could be center, left or right.
 	 */
 	public function setting_page_sidebar() { ?>
 
 		<div id="postbox-container-1" class="postbox-container">
 			<div class="meta-box-sortables" style="text-align: center; margin: auto">
-				<?php if ( is_array( $this->sidebar_config ) ): ?>
+				<?php if ( ! empty( $this->sidebar_config ) ): ?>
 					<?php foreach ( $this->sidebar_config as $arg ) : ?>
 						<div class="postbox">
-							<div class="handlediv" title="Click to toggle"><br></div>
+							<button type="button" class="handlediv button-link" aria-expanded="true">
+								<span class="screen-reader-text"><?php _e( 'Toggle panel' ); ?>: <?php echo $arg['content']; ?></span><span class="toggle-indicator" aria-hidden="true"></span>
+							</button>
 							<h3 class="hndle ui-sortable-handle">
 								<span><?php echo $arg['section_title']; ?></span>
 							</h3>
@@ -98,6 +134,74 @@ class Custom_Settings_Page_Api {
 		<?php
 	}
 
+	/**
+	 * Helper function to recursively sanitize POSTed data.
+	 *
+	 * @param $data
+	 *
+	 * @return string|array
+	 */
+	public static function sanitize_data( $data ) {
+		if ( is_string( $data ) ) {
+			return sanitize_text_field( $data );
+		}
+		$sanitized_data = array();
+		foreach ( $data as $key => $value ) {
+			if ( is_array( $data[ $key ] ) ) {
+				$sanitized_data[ $key ] = self::sanitize_data( $data[ $key ] );
+			} else {
+				$sanitized_data[ $key ] = sanitize_text_field( $data[ $key ] );
+			}
+		}
+
+		return $sanitized_data;
+	}
+
+
+	/**
+	 * Persist the form data to database.
+	 *
+	 * @return \WP_Error|Void
+	 */
+	public function persist_plugin_settings() {
+		add_action( 'admin_notices', array( $this, 'do_settings_errors' ) );
+		if ( empty( $_POST[ 'save_' . $this->option_name ] ) ) {
+			return;
+		}
+
+		/**
+		 * Return WP_Error object in your validation function/class method hooked to this action.
+		 */
+		do_action( 'wp_cspa_validate_data', $_POST[ $this->option_name ] );
+
+		$sanitize_callable = apply_filters( 'wp_cspa_santize_callback', 'self::sanitize_data' );
+
+		$sanitized_data = apply_filters( 'wp_cspa_santized_data', call_user_func( $sanitize_callable, $_POST[ $this->option_name ] ) );
+
+		update_option( $this->option_name, $sanitized_data );
+
+		wp_redirect( esc_url_raw( add_query_arg( 'settings-updated', 'true' ) ) );
+		exit;
+	}
+
+
+	public function do_settings_errors() {
+		$success_notice = apply_filters( '', 'Settings saved.' );
+		if ( isset( $_GET['settings-updated'] ) && ( $_GET['settings-updated'] == 'true' ) ) : ?>
+			<?php add_settings_error( 'wp_csa_notice', 'wp_csa_settings_updated', $success_notice, 'updated' ); ?>
+		<?php endif; ?>
+	<?php }
+
+	public function metabox_toggle_script() { ?>
+		<script type="text/javascript">
+			jQuery(document).ready(function ($) {
+				$('.wp_csa_view .handlediv').click(function () {
+					$(this).parent().toggleClass("closed").addClass('postbox');
+				});
+			});
+		</script>
+	<?php }
+
 
 	/**
 	 * Build the settings page.
@@ -107,17 +211,15 @@ class Custom_Settings_Page_Api {
 		?>
 		<div class="wrap">
 			<div id="icon-options-general" class="icon32"></div>
-			<h2><?php _e( 'Extras' ); ?></h2>
-			<?php if ( isset( $_GET['settings-update'] ) && ( $_GET['settings-update'] ) ) : ?>
-				<div id="message" class="updated notice is-dismissible"><p>
-						<strong><?php _e( 'Settings saved.' ); ?></strong></p></div>
-			<?php endif; ?>
+			<h2><?php echo $this->page_header; ?></h2>
+			<?php $this->do_settings_errors(); ?>
+			<?php settings_errors(); ?>
 			<?php $this->settings_page_tab() ?>
-			<div id="poststuff" class="ppview">
+			<div id="poststuff" class="wp_csa_view">
 				<div id="post-body" class="metabox-holder columns-2">
 					<div id="post-body-content">
 						<div class="meta-box-sortables ui-sortable">
-							<form method="post" <?php echo apply_filters( 'wp_cspa_form_tag', '' ); ?>>
+							<form method="post" <?php echo do_action( 'wp_cspa_form_tag' ); ?>>
 								<?php $this->_settings_page_main_content_area(); ?>
 							</form>
 						</div>
@@ -126,6 +228,8 @@ class Custom_Settings_Page_Api {
 				</div>
 			</div>
 		</div>
+
+		<?php $this->metabox_toggle_script(); ?>
 	<?php }
 
 
@@ -162,7 +266,7 @@ class Custom_Settings_Page_Api {
 		// variable declaration
 		$html = '';
 
-		if ( is_array( $args_arrays ) ) {
+		if ( ! empty( $args_arrays ) ) {
 			foreach ( $args_arrays as $args ) {
 
 				if ( ! empty( $args['section_title'] ) ) {
@@ -392,60 +496,15 @@ class Custom_Settings_Page_Api {
 		ob_start();
 		?>
 		<div class="postbox">
-		<div class="handlediv" title="Click to toggle"><br></div>
+		<button type="button" class="handlediv button-link" aria-expanded="true">
+			<span class="screen-reader-text"><?php _e( 'Toggle panel' ); ?>: <?php echo $this->page_header; ?></span><span class="toggle-indicator" aria-hidden="true"></span>
+		</button>
 		<h3 class="hndle ui-sortable-handle"><span><?php echo esc_attr( $section_title ); ?></span></h3>
 		<div class="inside">
 			<table class="form-table">
 		<?php
 		return ob_get_clean();
 	}
-
-	/**
-	 * Helper function to recursively sanitize POSTed data.
-	 *
-	 * @param $data
-	 *
-	 * @return string|array
-	 */
-	public static function sanitize_data( $data ) {
-		if ( is_string( $data ) ) {
-			return sanitize_text_field( $data );
-		}
-		$sanitized_data = array();
-		foreach ( $data as $key => $value ) {
-			if ( is_array( $data[ $key ] ) ) {
-				$sanitized_data[ $key ] = self::sanitize_data( $data[ $key ] );
-			} else {
-				$sanitized_data[ $key ] = sanitize_text_field( $data[ $key ] );
-			}
-		}
-
-		return $sanitized_data;
-	}
-
-
-	/**
-	 * Persist the form data to database.
-	 *
-	 * @return \WP_Error|Void
-	 */
-	public function persist_plugin_settings() {
-		if ( empty( $_POST ) ) {
-			return;
-		}
-
-		/**
-		 * Return WP_Error object in your validation function/class method hooked to this action.
-		 */
-		do_action( 'wp_cspa_validate_data', $_POST[ $this->option_name ] );
-
-		$sanitize_callable = apply_filters( 'wp_cspa_santize_callback', 'self::sanitize_data' );
-
-		$sanitized_data = apply_filters( 'wp_cspa_santized_data', call_user_func( $sanitize_callable, $_POST[ $this->option_name ] ) );
-
-		update_option( $this->option_name, $sanitized_data );
-	}
-
 
 	/**
 	 * Section footer.
