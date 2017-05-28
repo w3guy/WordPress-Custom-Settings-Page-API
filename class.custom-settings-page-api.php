@@ -210,7 +210,7 @@ class Custom_Settings_Page_Api
         do_action('wp_cspa_persist_settings', $sanitized_data, $this->option_name);
 
         if (!apply_filters('wp_cspa_disable_default_persistence', false)) {
-            update_option($this->option_name, $sanitized_data);
+            update_option($this->option_name, array_replace($this->db_options, $sanitized_data));
 
             wp_redirect(esc_url_raw(add_query_arg('settings-updated', 'true')));
             exit;
@@ -531,7 +531,7 @@ class Custom_Settings_Page_Api
         $label = esc_attr($args['label']);
         $defvalue = sanitize_text_field(@$args['value']);
         $tr_id = isset($args['tr_id']) ? $args['tr_id'] : "{$key}_row";
-        $disabled = isset($args['disabled']) ? 'disabled="disabled"' : '';
+        $disabled = isset($args['disabled']) && $args['disabled'] === true ? 'disabled="disabled"' : '';
         $description = @$args['description'];
         $option_name = $this->option_name;
         $value = !empty($db_options[$key]) ? $db_options[$key] : $defvalue;
@@ -636,6 +636,7 @@ class Custom_Settings_Page_Api
         $label = esc_attr($args['label']);
         $description = @$args['description'];
         $tr_id = isset($args['tr_id']) ? $args['tr_id'] : "{$key}_row";
+        $disabled = isset($args['disabled']) && $args['disabled'] === true ? 'disabled="disabled"' : '';
         $options = $args['options'];
         $default_select_value = @$args['value'];
         $option_name = $this->option_name;
@@ -645,7 +646,7 @@ class Custom_Settings_Page_Api
             <td>
 
                 <?php do_action('wp_cspa_before_select_dropdown', $db_options, $option_name, $key, $args); ?>
-                <select id="<?php echo $key; ?>" name="<?php echo $option_name, '[', $key, ']'; ?>">
+                <select id="<?php echo $key; ?>" name="<?php echo $option_name, '[', $key, ']'; ?>" <?php echo $disabled; ?>>
                     <?php foreach ($options as $option_key => $option_value) : ?>
                         <option value="<?php echo $option_key; ?>" <?php !empty($db_options[$key]) ? selected($db_options[$key], $option_key) : selected($option_key, $default_select_value); ?>><?php echo esc_attr($option_value); ?></option>
                     <?php endforeach; ?>
@@ -712,7 +713,7 @@ public function _header($section_title)
             <span class="screen-reader-text"><?php _e('Toggle panel'); ?>
                 : <?php echo $this->page_header; ?></span><span class="toggle-indicator" aria-hidden="true"></span>
         </button>
-        <h3 class="hndle ui-sortable-handle"><span><?php echo esc_html($section_title); ?></span></h3>
+        <h3 class="hndle ui-sortable-handle"><span><?php echo $section_title; ?></span></h3>
         <div class="inside">
             <table class="form-table">
                 <?php
@@ -722,8 +723,6 @@ public function _header($section_title)
 
                 /**
                  * Section header without the frills (title and toggle button).
-                 *
-                 * @param string $section_title
                  *
                  * @return string
                  */
